@@ -1,3 +1,4 @@
+import json
 import os
 
 import gradio as gr
@@ -7,8 +8,15 @@ from openai import OpenAI
 load_dotenv()
 
 SYSTEM_PROMPT = (
-    "You are a translator. Translate the user's text into French. "
-    "Return only the translation, with no commentary."
+    """
+    You are a translator. Translate the user's text into French and provide the english like pronunciation of the French translation.
+    You should respond in JSON with no commentary as in this example:
+    
+    {
+        "translation": "Bonjour, comment ça va?",
+        "pronunciation": "bohn-zhoor, koh-mahn sah vah?"
+    }
+    """
 )
 
 def check_api_key() -> None:
@@ -22,11 +30,11 @@ def set_up_client() -> OpenAI:
     check_api_key()
     return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
+client = set_up_client()
 
-def translate(text: str) -> str:
-    client = set_up_client()
+def translate(text: str):
     if not text.strip():
-        return ""
+        return "", None
 
     response = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -34,18 +42,54 @@ def translate(text: str) -> str:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": text},
         ],
+        response_format={"type": "json_object"}
     )
-    return response.choices[0].message.content or ""
+    message = response.choices[0].message.content or ''
+
+    if message.strip() == '':
+        return "No translation available.", None
+    
+    json_response = json.loads(message)
+
+    output = None
+    audio = None
+
+    translation = json_response.get("translation", "").strip()
+    pronunciation = json_response.get("pronunciation", "").strip()
+
+    if translation != '':
+        audio = create_audio_pronunciation(translation)
+        output = f"""
+        ## {translation}
+        {pronunciation}
+        """
+    else:
+        output = "No translation available."
+    return output, audio
+
+
+def create_audio_pronunciation(sentence):
+    response = client.audio.speech.create(
+        model="gpt-4o-mini-tts",
+        voice="alloy",
+        input=sentence,
+    )
+    return response.content
 
 
 def build_ui() -> gr.Blocks:
     with gr.Blocks(title="French Translator") as demo:
         gr.Markdown("# French Translator")
-        source = gr.Textbox(label="English", lines=6, placeholder="Type something…")
-        target = gr.Textbox(label="French", lines=6, interactive=False)
-        gr.Button("Translate", variant="primary").click(
-            translate, inputs=source, outputs=target
-        )
+        with gr.Row():
+            target = gr.Markdown(label="French", container=True)
+        with gr.Row():
+            audio_output = gr.Audio(autoplay=True)
+        with gr.Row():
+            source = gr.Textbox(label="English", lines=6, placeholder="Type something…")
+        with gr.Row():
+            gr.Button("Translate", variant="primary").click(
+                translate, inputs=source, outputs=[target, audio_output]
+            )
     return demo
 
 
