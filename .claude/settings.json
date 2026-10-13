@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -)",
+      "Bash(.venv/bin/python -c \"import ast,sys;ast.parse\\(open\\('src/french_translator/app.py'\\).read\\(\\)\\);print\\('syntax ok'\\)\")"
+    ]
+  }
+}
